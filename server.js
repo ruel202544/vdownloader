@@ -5,7 +5,7 @@ const fs = require('fs');
 const ytDlp = require('yt-dlp-exec');
 
 const app = express();
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
