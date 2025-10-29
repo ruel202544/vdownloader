@@ -74,7 +74,16 @@ app.post('/download', async (req, res) => {
 app.use(express.static(path.join(__dirname)));
 
 // Start server
+app.listen(PORT, () => { app.get('/', (req, res) => {
+    res.send('🎉 VDownloader backend is live and ready!');
+});
+
+// Start server
 app.listen(PORT, () => {
+    console.log(`✅ Server running at http://localhost:${PORT}`);
+    console.log(`Downloads directory: ${downloadsDir}`);
+});
+
     console.log(`✅ Server running at http://localhost:${PORT}`);
     console.log(`Downloads directory: ${downloadsDir}`);
 });
