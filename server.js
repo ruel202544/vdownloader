@@ -75,7 +75,7 @@ app.post('/api/download', (req, res) => {
 });
 
 // Serve index.html for all other routes
-app.get('*', (req, res) => {
+app.get('/*', (req, res) => {
   res.sendFile(path.join(publicPath, 'index.html'));
 });
 
