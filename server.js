@@ -1,64 +1,82 @@
 const express = require('express');
-const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
-const ytDlp = require('yt-dlp-exec');
+const { spawn } = require('child_process');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'))); // Serve frontend
+app.use(cors());
 
-const downloadsDir = path.join(__dirname, 'downloads');
-if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir);
+// Serve frontend
+const publicPath = path.join(__dirname, 'public');
+app.use(express.static(publicPath));
 
-let progressPercent = 0;
+// ========== Backend APIs ==========
 
-// Download route
-app.post('/download', async (req, res) => {
-  const { url } = req.body;
-  if (!url) return res.status(400).json({ error: 'No URL provided' });
-
-  const outputPath = path.join(downloadsDir, '%(title)s.%(ext)s');
-
-  try {
-    ytDlp.exec(url, {
-      output: outputPath,
-      progress: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      format: 'bestvideo+bestaudio/best',
-    })
-    .on('progress', p => {
-      progressPercent = Math.floor(p.percent || 0);
-    })
-    .on('error', err => {
-      console.error('Download error:', err);
-    })
-    .on('close', () => {
-      progressPercent = 100;
-    });
-
-    res.json({ status: 'Download started' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Download failed' });
-  }
+app.get('/api/status', (req, res) => {
+  res.json({ message: 'VDownloader backend is live and ready!' });
 });
 
-// Progress route
+// Store clients for SSE
+let clients = [];
+
+// Progress SSE endpoint
 app.get('/progress', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const interval = setInterval(() => {
-    res.write(`data: ${progressPercent}\n\n`);
-    if (progressPercent >= 100) clearInterval(interval);
-  }, 1000);
+  // Add client
+  clients.push(res);
+
+  // Remove client when connection closes
+  req.on('close', () => {
+    clients = clients.filter(client => client !== res);
+  });
+});
+
+// Function to send progress to all connected clients
+function sendProgress(percent) {
+  clients.forEach(client => {
+    client.write(`data: ${percent}\n\n`);
+  });
+}
+
+// Download API
+app.post('/api/download', (req, res) => {
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ message: 'No URL provided' });
+
+  // Spawn yt-dlp process
+  const ytdlp = spawn('yt-dlp', ['-f', 'best', '--newline', url]);
+
+  ytdlp.stdout.on('data', (data) => {
+    const line = data.toString();
+    // Look for progress percentage in yt-dlp stdout
+    const match = line.match(/(\d{1,3}\.\d)%/);
+    if (match) {
+      const percent = parseFloat(match[1]);
+      sendProgress(percent);
+    }
+  });
+
+  ytdlp.stderr.on('data', (data) => {
+    console.error('yt-dlp error:', data.toString());
+  });
+
+  ytdlp.on('close', (code) => {
+    sendProgress(100); // make sure progress reaches 100% on finish
+    console.log(`Download finished with code ${code}`);
+  });
+
+  res.json({ message: `Started downloading ${url}` });
+});
+
+// Serve index.html for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(publicPath, 'index.html'));
 });
 
 // Start server
